@@ -1,0 +1,68 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: projects
+// Document ID: {projectId}
+// Fields:
+//   - name: string (required, 1-100 chars)
+//   - description: string (required, 1-5000 chars)
+//   - framework: string (optional, e.g., React, Next.js, Vue)
+//   - language: string (optional, e.g., TypeScript, JavaScript)
+//   - scope: string (optional, e.g., MVP, Enterprise, Internal Tool)
+//   - generatedCode: string (optional, 1-1000000 chars)
+//   - userId: string (required, must match auth.uid)
+//   - createdAt: timestamp (required)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isValidProject(data) {
+      return data.keys().hasAll(['name', 'description', 'userId', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.description is string && data.description.size() > 0 && data.description.size() <= 500000 &&
+             data.userId == request.auth.uid &&
+             data.createdAt is timestamp &&
+             (!('framework' in data) || (data.framework is string && data.framework.size() <= 100)) &&
+             (!('language' in data) || (data.language is string && data.language.size() <= 100)) &&
+             (!('scope' in data) || (data.scope is string && data.scope.size() <= 100)) &&
+             (!('generatedCode' in data) || (data.generatedCode is string && data.generatedCode.size() <= 1000000));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /projects/{projectId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && isValidProject(request.resource.data);
+      allow update: if isDocOwner() && isValidProject(request.resource.data) && 
+                      request.resource.data.userId == resource.data.userId &&
+                      request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isDocOwner();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
